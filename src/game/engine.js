@@ -93,18 +93,21 @@ function saveBestRecord(score, kills, time, level, upgrades) {
 let _logTimer = 0;
 
 export class GameEngine {
-  constructor(canvas) {
+  constructor(canvas, logicalW, logicalH) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+    // 逻辑尺寸（与渲染坐标一致，不受 devicePixelRatio 影响）
+    this.logicalW = logicalW || canvas.width;
+    this.logicalH = logicalH || canvas.height;
 
     this.input = new InputManager(canvas);
-    this.camera = new Camera(canvas.width, canvas.height);
+    this.camera = new Camera(this.logicalW, this.logicalH);
     this.bullets = new BulletManager();
     this.spawner = new EnemySpawner();
     this.collision = new CollisionSystem();
     this.hud = new HUD();
 
-    this.player = new Player(canvas.width / 2, canvas.height / 2);
+    this.player = new Player(this.logicalW / 2, this.logicalH / 2);
     this.running = false;
     this.lastTime = 0;
     this._rafId = null;
@@ -214,7 +217,7 @@ export class GameEngine {
     if (!this.player.alive) return;
     if (this.showingChoice) return; // 面板暂停
 
-    const { canvas } = this;
+    const W = this.logicalW, H = this.logicalH;
     const player = this.player;
 
     _logTimer += dt;
@@ -229,11 +232,11 @@ export class GameEngine {
 
     player.update(dt, this.input, this.bullets, this.spawner.enemies);
 
-    player.x = Math.max(player.radius, Math.min(canvas.width - player.radius, player.x));
-    player.y = Math.max(player.radius, Math.min(canvas.height - player.radius, player.y));
+    player.x = Math.max(player.radius, Math.min(W - player.radius, player.x));
+    player.y = Math.max(player.radius, Math.min(H - player.radius, player.y));
 
     this.bullets.update(dt);
-    this.spawner.update(dt, canvas.width, canvas.height, player.x, player.y, this.bullets, MAX_ENEMIES);
+    this.spawner.update(dt, W, H, player.x, player.y, this.bullets, MAX_ENEMIES);
 
     // ── 碰撞检测 ──
 
@@ -399,8 +402,8 @@ export class GameEngine {
   // ═══════════════════════════════════════════
 
   _render() {
-    const { ctx, canvas } = this;
-    const W = canvas.width, H = canvas.height;
+    const { ctx } = this;
+    const W = this.logicalW, H = this.logicalH;
 
     // ── 屏幕震动：在渲染前应用偏移 ──
     if (this._shakeTimer > 0) {
@@ -641,8 +644,8 @@ export class GameEngine {
   }
 
   resize(width, height) {
-    this.canvas.width = width;
-    this.canvas.height = height;
+    this.logicalW = width;
+    this.logicalH = height;
     this.camera.setSize(width, height);
   }
 
