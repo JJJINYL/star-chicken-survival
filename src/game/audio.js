@@ -157,3 +157,38 @@ export function playSplit() {
     }
   } catch (_) {}
 }
+
+/** 清屏爆发音效 — 上升啸叫 + 爆裂 */
+export function playClearing() {
+  try {
+    const ctx = getCtx();
+    // 上升阶段
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(400, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1600, ctx.currentTime + 0.25);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.3);
+
+    // 爆裂：多个短 noise 脉冲
+    for (let i = 0; i < 4; i++) {
+      const o2 = ctx.createOscillator();
+      const g2 = ctx.createGain();
+      o2.connect(g2);
+      g2.connect(ctx.destination);
+      o2.type = 'sawtooth';
+      const t2 = ctx.currentTime + 0.1 + i * 0.06;
+      o2.frequency.setValueAtTime(200 + Math.random() * 600, t2);
+      o2.frequency.exponentialRampToValueAtTime(50, t2 + 0.08);
+      g2.gain.setValueAtTime(0.08, t2);
+      g2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.1);
+      o2.start(t2);
+      o2.stop(t2 + 0.1);
+    }
+  } catch (_) {}
+}

@@ -8,13 +8,13 @@ function App() {
   const [gameOver, setGameOver] = useState(false);
   const [result, setResult] = useState(null);
   const [isLandscape, setIsLandscape] = useState(true);
+  const fullscreenAttempted = useRef(false);
 
   // ── 横竖屏检测 ──
   useEffect(() => {
     const check = () => {
       const w = window.innerWidth;
       const h = window.innerHeight;
-      // 桌面端（宽 > 768px）永远显示游戏；手机端才判断横竖屏
       const mobile = w <= 768 || ('ontouchstart' in window);
       if (!mobile) {
         setIsLandscape(true);
@@ -31,6 +31,18 @@ function App() {
     };
   }, []);
 
+  // ── 全屏请求（首次横屏触摸时触发） ──
+  const tryFullscreen = useCallback(() => {
+    if (fullscreenAttempted.current) return;
+    fullscreenAttempted.current = true;
+    const el = document.documentElement;
+    if (el.requestFullscreen) {
+      el.requestFullscreen().catch(() => {});
+    } else if (el.webkitRequestFullscreen) {
+      el.webkitRequestFullscreen();
+    }
+  }, []);
+
   // ── 初始化引擎 ──
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -41,14 +53,11 @@ function App() {
     const logicalW = window.innerWidth;
     const logicalH = window.innerHeight;
 
-    // canvas 物理像素尺寸
     canvas.width = logicalW * dpr;
     canvas.height = logicalH * dpr;
-    // canvas CSS 尺寸 = 逻辑尺寸（填满屏幕）
     canvas.style.width = logicalW + 'px';
     canvas.style.height = logicalH + 'px';
 
-    // scale 上下文，让所有绘图操作以逻辑坐标进行
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
 
@@ -66,7 +75,6 @@ function App() {
       canvas.style.width = newW + 'px';
       canvas.style.height = newH + 'px';
 
-      // 重置 scale（因为 canvas.width 变化会重置变换矩阵）
       const c = canvas.getContext('2d');
       c.setTransform(newDpr, 0, 0, newDpr, 0, 0);
 
@@ -78,12 +86,14 @@ function App() {
 
     // 点击升级卡片（鼠标）
     const handleCanvasClick = (e) => {
+      tryFullscreen();
       engine.handleClick(e.clientX, e.clientY);
     };
     canvas.addEventListener('click', handleCanvasClick);
 
     // 触摸点击升级卡片
     const handleTouchForCard = (e) => {
+      tryFullscreen();
       if (!engine.showingChoice) return;
       for (const touch of e.changedTouches) {
         engine.handleClick(touch.clientX, touch.clientY);
@@ -140,7 +150,7 @@ function App() {
       {gameOver && (
         <div className="game-overlay">
           <button className="restart-btn" onClick={handleRestart}>
-            重新开始
+            再来一局
           </button>
         </div>
       )}

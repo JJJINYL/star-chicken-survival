@@ -11,7 +11,7 @@ import { InputManager } from './input.js';
 import { Camera } from './camera.js';
 import { HUD } from './hud.js';
 import { ExperienceOrb } from './entities.js';
-import { playShoot, playHit, playPickup, playLevelUp, playGameOver, playSplit } from './audio.js';
+import { playShoot, playHit, playPickup, playLevelUp, playGameOver, playSplit, playClearing } from './audio.js';
 
 // ── 对象数量上限 ──
 const MAX_ENEMIES = 80;
@@ -136,6 +136,12 @@ export class GameEngine {
     this._shakeX = 0;          // 屏幕震动偏移 x
     this._shakeY = 0;          // 屏幕震动偏移 y
     this._shakeTimer = 0;      // 震动剩余时间
+
+    // ── 清屏爆发 ──
+    this._clearingActive = false;   // 是否正在爆发
+    this._clearingTimer = 0;        // 爆发剩余显示时间
+    this._clearingKillThreshold = 10; // 下次触发所需击杀数
+    this._clearingTimeThreshold = 0;  // 时间触发计时
   }
 
   start() {
@@ -182,6 +188,10 @@ export class GameEngine {
     this._shakeX = 0;
     this._shakeY = 0;
     this._shakeTimer = 0;
+    this._clearingActive = false;
+    this._clearingTimer = 0;
+    this._clearingKillThreshold = 10;
+    this._clearingTimeThreshold = 0;
     _logTimer = 0;
   }
 
@@ -349,12 +359,31 @@ export class GameEngine {
         this._shakeY *= 0.85;
       }
     }
+
+    // ── 清屏爆发计时 ──
+    if (this._clearingActive) {
+      this._clearingTimer -= dt;
+      if (this._clearingTimer <= 0) {
+        this._clearingActive = false;
+        this._clearingTimer = 0;
+      }
+    }
+
+    // ── 时间触发清屏 ──
+    if (!this._clearingActive && this._clearingTimeThreshold > 0 && this.spawner.difficultyTimer >= this._clearingTimeThreshold) {
+      this._triggerClearingBurst();
+    }
   }
 
   _onEnemyDied(enemy) {
     this.hud.addScore(enemy.score);
     this.hud.addKill();
     playHit();
+    // 清屏爆发：击杀里程碑检查
+    const kills = this.hud.kills;
+    if (kills >= this._clearingKillThreshold && !this._clearingActive) {
+      this._triggerClearingBurst();
+    }
     // 精英死亡：屏幕震动（稍强）
     if (enemy.elite) {
       this._shakeTimer = 0.15;
@@ -374,6 +403,54 @@ export class GameEngine {
     this.showingChoice = true;
     this.choiceType = 'upgrade';
     this.choiceData = pickUpgradesForBuild(this.player.buildType, 3);
+  }
+
+  /** 清屏爆发：清除场上大部分敌人 + 强视觉 */
+  _triggerClearingBurst() {
+    if (this._clearingActive) return;
+    this._clearingActive = true;
+    this._clearingTimer = 1.5;
+
+    // 清除场上所有非精英敌人
+    const enemies = this.spawner.enemies;
+    for (const e of enemies) {
+      if (!e.alive || e.elite) continue;
+      // 直接标记死亡，不走碰撞流程（避免重复触发 events）
+      e.alive = false;
+      // 添加击杀缩放动画
+      e._deathScale = 1.0;
+      // 小粒子爆发
+      for (let i = 0; i < 6; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const spd = 40 + Math.random() * 80;
+        e._burstParticles.push({
+          x: e.x, y: e.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
+          life: 0.3 + Math.random() * 0.3, maxLife: 0.6, radius: 2 + Math.random() * 3,
+        });
+      }
+    }
+    // 给玩家少量经验
+    for (let i = 0; i < 5; i++) {
+      if (this.xpOrbs.length >= MAX_XP_ORBS) break;
+      this.xpOrbs.push(new ExperienceOrb(
+        this.player.x + (Math.random() - 0.5) * 100,
+        this.player.y + (Math.random() - 0.5) * 100,
+        Math.round(12 * this.xpMultiplier)
+      ));
+    }
+
+    // 强屏幕震动
+    this._shakeTimer = 0.3;
+    this._shakeX = (Math.random() - 0.5) * 12;
+    this._shakeY = (Math.random() - 0.5) * 12;
+    // Hit stop 短暂停顿让玩家感受到爆发
+    this._hitStop = 0.08;
+
+    playClearing();
+
+    // 设定下次里程碑（阶梯递增：10, 25, 50, 80, ...）
+    this._clearingKillThreshold = this.hud.kills + Math.min(15 + Math.floor(this.hud.kills / 20) * 10, 60);
+    this._clearingTimeThreshold = this.spawner.difficultyTimer + 45; // 45秒后时间触发
   }
 
   /** 选择一个选项（流派或升级） */
@@ -455,6 +532,36 @@ export class GameEngine {
         ctx.fillRect(0, 0, 4, H);           // 左
         ctx.fillRect(W - 4, 0, 4, H);       // 右
       }
+    }
+
+    // ── 清屏爆发 ──
+    if (this._clearingActive && this.player.alive) {
+      const pulse = 0.5 + Math.sin(performance.now() * 0.02) * 0.5;
+      // 全屏白色闪光
+      ctx.fillStyle = `rgba(255,255,255,${pulse * 0.15})`;
+      ctx.fillRect(0, 0, W, H);
+      // 中央大字
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(255,255,100,${pulse * 0.9})`;
+      ctx.font = 'bold 48px monospace';
+      ctx.shadowColor = '#ffdd57';
+      ctx.shadowBlur = 30;
+      ctx.fillText('💥 清屏爆发 💥', W / 2, H * 0.4);
+      ctx.shadowBlur = 0;
+
+      // 四角光芒线
+      ctx.strokeStyle = `rgba(255,255,200,${pulse * 0.6})`;
+      ctx.lineWidth = 4;
+      const len = 40;
+      const gap = 15;
+      // 左上
+      ctx.beginPath(); ctx.moveTo(gap, gap + len); ctx.lineTo(gap, gap); ctx.lineTo(gap + len, gap); ctx.stroke();
+      // 右上
+      ctx.beginPath(); ctx.moveTo(W - gap - len, gap); ctx.lineTo(W - gap, gap); ctx.lineTo(W - gap, gap + len); ctx.stroke();
+      // 左下
+      ctx.beginPath(); ctx.moveTo(gap, H - gap - len); ctx.lineTo(gap, H - gap); ctx.lineTo(gap + len, H - gap); ctx.stroke();
+      // 右下
+      ctx.beginPath(); ctx.moveTo(W - gap - len, H - gap); ctx.lineTo(W - gap, H - gap); ctx.lineTo(W - gap, H - gap - len); ctx.stroke();
     }
 
     if (this.xpMultiplier > 1.0 && this.player.alive) {
